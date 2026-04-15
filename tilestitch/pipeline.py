@@ -1,72 +1,83 @@
-"""High-level pipeline: bbox → tiles → stitched image."""
+"""High-level pipeline orchestrating fetch → stitch → export."""
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
+from tilestitch.logger import get_logger
+from tilestitch.validator import validate_bbox, validate_zoom
 from tilestitch.tile_math import tiles_for_bbox
-from tilestitch.tile_fetcher import fetch_tiles
 from tilestitch.sources import get_source, tile_url
+from tilestitch.tile_fetcher import fetch_tiles
 from tilestitch.stitcher import stitch_tiles, save_image
+from tilestitch.exporter import export_png, export_geotiff
+from tilestitch.metadata import build_metadata, save_metadata
+
+logger = get_logger(__name__)
 
 
 def run(
     bbox: tuple[float, float, float, float],
     zoom: int,
     source_name: str = "osm",
-    output_path: str = "output.png",
-    fmt: str = "PNG",
-    workers: int = 8,
-    timeout: float = 10.0,
-) -> str:
-    """Fetch and stitch tiles for *bbox* at *zoom* and write to *output_path*.
+    output: str = "output.png",
+    geotiff: bool = False,
+    save_meta: bool = False,
+    cache_dir: Optional[str] = None,
+) -> None:
+    """Execute the full tilestitch pipeline.
 
-    Parameters
-    ----------
-    bbox:
-        ``(min_lon, min_lat, max_lon, max_lat)`` in WGS-84 degrees.
-    zoom:
-        Tile zoom level (0-19).
-    source_name:
-        Tile source identifier recognised by :func:`~tilestitch.sources.get_source`.
-    output_path:
-        Destination file path for the stitched image.
-    fmt:
-        Pillow format string, e.g. ``"PNG"`` or ``"JPEG"``.
-    workers:
-        Number of concurrent download threads.
-    timeout:
-        Per-request timeout in seconds.
-
-    Returns
-    -------
-    str
-        Absolute path to the written file.
+    Args:
+        bbox: (min_lat, min_lon, max_lat, max_lon)
+        zoom: Tile zoom level (0-19).
+        source_name: Tile source identifier.
+        output: Destination file path for the image.
+        geotiff: When True, export as GeoTIFF instead of PNG.
+        save_meta: When True, write a sidecar JSON metadata file.
+        cache_dir: Optional directory for tile caching.
     """
-    min_lon, min_lat, max_lon, max_lat = bbox
+    validate_bbox(bbox)
+    validate_zoom(zoom)
 
     source = get_source(source_name)
-    bounds = tiles_for_bbox(min_lat, min_lon, max_lat, max_lon, zoom)
+    logger.info("Using source '%s' at zoom %d", source_name, zoom)
 
-    urls: dict[tuple[int, int], str] = {}
-    for tx in range(bounds.min_x, bounds.max_x + 1):
-        for ty in range(bounds.min_y, bounds.max_y + 1):
-            urls[(tx, ty)] = tile_url(source, zoom, tx, ty)
-
-    raw_tiles = fetch_tiles(
-        list(urls.values()),
-        workers=workers,
-        timeout=timeout,
+    bounds = tiles_for_bbox(*bbox, zoom)
+    logger.info(
+        "Tile bounds: x=[%d,%d] y=[%d,%d]",
+        bounds.x_min, bounds.x_max,
+        bounds.y_min, bounds.y_max,
     )
 
-    # Re-key raw_tiles (list of bytes, same order as urls.values()) by (tx, ty)
-    keyed: dict[tuple[int, int], bytes] = {}
-    for (coord, _url), data in zip(urls.items(), raw_tiles):
-        if data is not None:
-            keyed[coord] = data
+    urls = {
+        (x, y): tile_url(source, x, y, zoom)
+        for x in range(bounds.x_min, bounds.x_max + 1)
+        for y in range(bounds.y_min, bounds.y_max + 1)
+    }
 
-    image = stitch_tiles(keyed, bounds)
-    save_image(image, output_path, fmt=fmt)
+    tile_data = fetch_tiles(urls)
+    logger.info("Fetched %d tiles", len(tile_data))
 
-    import os
-    return os.path.abspath(output_path)
+    image = stitch_tiles(tile_data, bounds)
+    logger.info("Stitched image size: %dx%d", image.width, image.height)
+
+    if geotiff:
+        export_geotiff(image, bounds, zoom, output)
+        logger.info("Saved GeoTIFF: %s", output)
+    else:
+        export_png(image, output)
+        logger.info("Saved PNG: %s", output)
+
+    if save_meta:
+        meta = build_metadata(
+            source=source_name,
+            zoom=zoom,
+            bbox=bbox,
+            bounds=bounds,
+            image_width=image.width,
+            image_height=image.height,
+        )
+        meta_path = os.path.splitext(output)[0] + ".json"
+        save_metadata(meta, meta_path)
+        logger.info("Saved metadata: %s", meta_path)
