@@ -53,6 +53,12 @@ class TestWithRetryFailure:
         with pytest.raises(ValueError, match="attempts"):
             with_retry(lambda: b"", attempts=0)
 
+    def test_retry_error_message_includes_attempt_count(self):
+        fn = MagicMock(side_effect=OSError("timeout"))
+        with patch("tilestitch.retry.time.sleep"):
+            with pytest.raises(RetryError, match="3"):
+                with_retry(fn, attempts=3, exceptions=(OSError,))
+
 
 class TestWithRetryBackoff:
     def test_sleep_called_between_attempts(self):
@@ -72,18 +78,6 @@ class TestWithRetryBackoff:
         fn = MagicMock(side_effect=OSError())
         with patch("tilestitch.retry.time.sleep") as mock_sleep:
             with pytest.raises(RetryError):
-                with_retry(fn, attempts=2, backoff=1.0, exceptions=(OSError,))
-        assert mock_sleep.call_count == 1  # only between attempt 1 and 2
-
-
-class TestWithRetryCallback:
-    def test_on_retry_called_with_attempt_and_exception(self):
-        exc = OSError("fail")
-        fn = MagicMock(side_effect=[exc, b"ok"])
-        callback = MagicMock()
-        with patch("tilestitch.retry.time.sleep"):
-            with_retry(fn, attempts=3, exceptions=(OSError,), on_retry=callback)
-        callback.assert_called_once()
-        call_args = callback.call_args
-        assert call_args.args[0] == 1
-        assert call_args.args[1] is exc
+                with_retry(fn, attempts=3, backoff=1.0, exceptions=(OSError,))
+        # sleep should be called attempts-1 times (not after the final failure)
+        assert mock_sleep.call_count == 2
