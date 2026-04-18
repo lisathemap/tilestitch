@@ -26,6 +26,9 @@ class BBoxGrid:
     def __getitem__(self, index: int) -> BBox:
         return self.cells[index]
 
+    def __iter__(self):
+        return iter(self.cells)
+
 
 def split_bbox(bbox: BBox, rows: int, cols: int) -> BBoxGrid:
     """Split *bbox* into a *rows* x *cols* grid of sub-bounding boxes.
@@ -73,3 +76,9 @@ def bbox_area(bbox: BBox) -> float:
     """Return the area of *bbox* in square degrees."""
     west, south, east, north = bbox
     return (east - west) * (north - south)
+
+
+def bbox_center(bbox: BBox) -> Tuple[float, float]:
+    """Return the (longitude, latitude) center of *bbox*."""
+    west, south, east, north = bbox
+    return ((west + east) / 2, (south + north) / 2)
