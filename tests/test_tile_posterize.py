@@ -81,6 +81,11 @@ class TestApplyPosterize:
         unique = set(result.getdata())
         assert len(unique) <= 8  # 2^1 per channel => max 8 combos
 
+    def test_mode_preserved_rgb(self):
+        img = _solid(mode="RGB")
+        result = apply_posterize(img, PosterizeConfig(bits=4))
+        assert result.mode == "RGB"
+
 
 class TestPosterizeConfigFromEnv:
     def test_defaults_when_no_env(self, monkeypatch):
@@ -96,11 +101,11 @@ class TestPosterizeConfigFromEnv:
         assert cfg.enabled is False
 
     def test_bits_via_env(self, monkeypatch):
-        monkeypatch.setenv("TILESTITCH_POSTERIZE_BITS", "3")
+        monkeypatch.setenv("TILESTITCH_POSTERIZE_BITS", "2")
         cfg = posterize_config_from_env()
-        assert cfg.bits == 3
+        assert cfg.bits == 2
 
     def test_invalid_bits_env_raises(self, monkeypatch):
-        monkeypatch.setenv("TILESTITCH_POSTERIZE_BITS", "abc")
+        monkeypatch.setenv("TILESTITCH_POSTERIZE_BITS", "99")
         with pytest.raises(PosterizeError):
             posterize_config_from_env()
