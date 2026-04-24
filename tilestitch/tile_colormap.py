@@ -69,4 +69,9 @@ def colormap_config_from_env() -> ColormapConfig:
     """Build a ColormapConfig from environment variables."""
     name = os.environ.get("TILESTITCH_COLORMAP", "grayscale")
     invert = os.environ.get("TILESTITCH_COLORMAP_INVERT", "false").lower() == "true"
-    return ColormapConfig(name=name, invert=invert)
+    try:
+        return ColormapConfig(name=name, invert=invert)
+    except ColormapError as exc:
+        raise ColormapError(
+            f"Invalid colormap configuration from environment: {exc}"
+        ) from exc
