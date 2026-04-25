@@ -22,7 +22,13 @@ def contrast_config_from_env() -> ContrastConfig:
     import os
 
     enabled = os.environ.get("TILESTITCH_CONTRAST_ENABLED", "false").lower() == "true"
-    factor = float(os.environ.get("TILESTITCH_CONTRAST_FACTOR", "1.0"))
+    raw_factor = os.environ.get("TILESTITCH_CONTRAST_FACTOR", "1.0")
+    try:
+        factor = float(raw_factor)
+    except ValueError:
+        raise ContrastError(
+            f"TILESTITCH_CONTRAST_FACTOR must be a number, got {raw_factor!r}"
+        )
     return ContrastConfig(enabled=enabled, factor=factor)
 
 
